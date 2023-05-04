@@ -1,0 +1,12 @@
+Executable Runtime Args:
+   Execuable
+   ExporterEndpointApi
+
+Runtime EnvFile:
+    runtime-env-file.env 
+
+Local ListenerPort:
+    9091
+
+Example: 
+   docker run --env-file runtime-env-file.env -p 9091:9091 sabariarunkumarp/demo-otel-cpp-manage-employee:1 /app/build/manage_employee http://172.31.3.33:9092/otel-trace-service/export

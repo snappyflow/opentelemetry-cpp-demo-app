@@ -1,0 +1,46 @@
+CC = g++
+CFLAGS = -Wall -Wextra -std=c++11
+LDFLAGS = -lsqlite3 -lcpprest -lboost_system -lssl -lcrypto
+
+SOURCE_FILE = employee_details.cpp
+TARGET = demo-app
+
+all: opentelemetry_build cpprestsdk_build
+
+cpprestsdk_build:
+	git clone https://github.com/microsoft/cpprestsdk.git
+	cd cpprestsdk && \
+	git submodule update --init && \
+	mkdir build && \
+	cd build && \
+	cmake .. && \
+	make && \
+	make install
+
+protobuf_install:
+	wget https://github.com/bazelbuild/bazel/releases/download/7.0.0-pre.20230420.2/bazel-7.0.0-pre.20230420.2-installer-linux-x86_64.sh && \
+	chmod +x ./bazel-7.0.0-pre.20230420.2-installer-linux-x86_64.sh && \
+	./bazel-7.0.0-pre.20230420.2-installer-linux-x86_64.sh && \
+	wget https://github.com/protocolbuffers/protobuf/releases/download/v22.3/protobuf-22.3.tar.gz --no-check-certificate && \
+	tar -xvf protobuf-22.3.tar.gz && \
+	cd protobuf-s2.3 && \
+	cmake . && \
+ 	cmake --build . --parallel 10 && \
+	cmake --install .
+
+opentelemetry_build:
+	rm -rf opentelemetry-cpp && \
+	git clone https://github.com/open-telemetry/opentelemetry-cpp
+	cd opentelemetry-cpp && \
+	# git checkout tags/v1.8.3 -b v1.8.3 && \
+	mkdir build && \
+	cd build && \
+	# cmake .. -DCMAKE_CXX_STANDARD=17 -DWITH_OTLP=ON -DBUILD_TESTING=OFF  -DWITH_OTLP_GRPC=OFF  -DOPENTELEMETRY_INSTALL=ON&& \
+	cmake .. -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=Release \
+	-DBUILD_TESTING=OFF -DWITH_EXAMPLES=OFF -DWITH_OTLP=ON \
+	-DWITH_OTLP_HTTP=ON -DWITH_OTLP_GRPC=OFF -DOPENTELEMETRY_INSTALL=ON -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON && \
+	make -j$(nproc || sysctl -n hw.ncpu || echo 1) install
+
+# let compilation happen through dockerfile such that effectiely reusing compiled chunk in docker layer cache
+# compile:
+# 	$(CC) $(CFLAGS) -o $(SOURCE_FILE) $< $(LDFLAGS)
