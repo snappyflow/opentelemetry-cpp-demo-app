@@ -14,6 +14,10 @@
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
 #include "opentelemetry/trace/provider.h"
 #include "opentelemetry/trace/semantic_conventions.h"
+#include "opentelemetry/ext/http/client/http_client_factory.h"
+#include "opentelemetry/ext/http/common/url_parser.h"
+#include "opentelemetry/trace/context.h"
+#include "tracer_common.h"
 
 #include <cpprest/http_listener.h>
 #include <cpprest/json.h>
@@ -29,7 +33,8 @@ using namespace opentelemetry::trace;
 namespace trace_api      = opentelemetry::trace;
 namespace trace_sdk      = opentelemetry::sdk::trace;
 namespace trace_exporter = opentelemetry::exporter::trace;
-
+namespace context     = opentelemetry::context;
+namespace otel_http_client = opentelemetry::ext::http::client;
 
 // auto tracer = opentelemetry::sdk::trace::TracerProvider::GetTracerProvider()->GetTracer("employee_enrollment_manager");
 
@@ -40,11 +45,6 @@ int create_table(sqlite3* db);
 int insert_into_table(sqlite3* db, const char *name, int age, const char *client);
 json::value get_data_from_table(sqlite3* db);
 
-opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> get_tracer()
-{
-  auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-  return provider->GetTracer("manage-employee-client");
-}
 
 std::string getRandomString(const std::string* stringArray, int arraySize) {
     std::mt19937 gen(std::time(0));
@@ -76,23 +76,25 @@ int create_table(sqlite3* db) {
 
 }
 int insert_into_table(sqlite3* db, const char *name, int age, const char *client) {
-    // auto span = tracer->StartSpan("data-tier: inserting_employee_data_into_sqlite_db");
-    auto span =  get_tracer()->StartSpan("Add_Employee_Details_To_DB");
+
+    StartSpanOptions options;
+    options.kind = SpanKind::kInternal;
+    auto span =  get_tracer()->StartSpan("Add_Employee_Details_To_DB", options);
     auto scope = get_tracer()->WithActiveSpan(span);
     span->SetAttribute(SemanticConventions::kDbName, "employeeDB");
     span->SetAttribute("db.type", "sqlite");
+    span->SetAttribute("db.action", "query");
     span->SetAttribute("db.instance", "HDD-Optimized-v1");
     span->SetAttribute(SemanticConventions::kDbUser, "sabari");
 
 
     char insertQuery[500];
     sprintf(insertQuery, "INSERT INTO Employees (name, age, assigned_client) VALUES ('%s', %d, '%s')", name, age, client);
+    
     span->SetAttribute(SemanticConventions::kDbStatement, insertQuery);
-
     int result = sqlite3_exec(db, insertQuery, nullptr, nullptr, nullptr);
     if (result != SQLITE_OK) {
         std::cerr << "Error inserting data: " << sqlite3_errmsg(db) << std::endl;
-        // sqlite3_close(db);
         span->End();
         return result;
     }
@@ -101,12 +103,15 @@ int insert_into_table(sqlite3* db, const char *name, int age, const char *client
     return 0;
 }
 json::value get_data_from_table(sqlite3* db) {
-    // auto span = tracer->StartSpan("data-tier: get_employee_data_from_sqlite_db");
-    auto span =  get_tracer()->StartSpan("GET^Fetch_Employee_Data_From_DB");
+
+    StartSpanOptions options;
+    options.kind = SpanKind::kInternal;
+    auto span =  get_tracer()->StartSpan("GET^Fetch_Employee_Data_From_DB", options);
     auto scope = get_tracer()->WithActiveSpan(span);
 
     span->SetAttribute(SemanticConventions::kDbName, "employeeDB");
     span->SetAttribute("db.type", "sqlite");
+    span->SetAttribute("db.action", "query");
     span->SetAttribute("db.instance", "HDD-Optimized-v1");
     span->SetAttribute(SemanticConventions::kDbUser, "sabari");
 
@@ -120,8 +125,6 @@ json::value get_data_from_table(sqlite3* db) {
         json::value obj;
         for (int i = 0; i < argc; i++) {   
             (obj)[U(azColName[i])] = json::value::string(U(argv[i]));
-            // array_index_tracker = array_index_tracker + 1;
-            std::cout << azColName[i] << ": " << argv[i] << std::endl;
         }
         (*responseJsonArray)[(*responseJsonArray).size()] = obj;
         return 0;
@@ -140,7 +143,24 @@ json::value get_data_from_table(sqlite3* db) {
 void add_employee(http_request request)
 {
 
-    auto span =  get_tracer()->StartSpan("POST^Register_Employee");
+    StartSpanOptions options;
+    options.kind = SpanKind::kServer;
+    
+    if (request.headers().has("traceparent")) {
+        HttpTextMapCarrier<otel_http_client::Headers> carrier;
+        const std::string& traceparentVal = request.headers()["traceparent"];
+        carrier.Set("traceparent", traceparentVal);
+         if (request.headers().has("tracestate")) {
+            const std::string& tracestateVal = request.headers()["tracestate"];
+            carrier.Set("tracestate", tracestateVal);
+        }
+        auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+        auto current_ctx = context::RuntimeContext::GetCurrent();
+        auto new_context = prop->Extract(carrier, current_ctx);
+        options.parent   = GetSpan(new_context)->GetContext();
+    }
+
+    auto span =  get_tracer()->StartSpan("POST^Register_Employee", options);
     auto scope = get_tracer()->WithActiveSpan(span);
 
     const http_headers& headers = request.headers();
@@ -164,14 +184,14 @@ void add_employee(http_request request)
     }
     span->SetAttribute(SemanticConventions::kHttpMethod, "POST");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/manage-employee");
+
     const utility::string_t& url = request.absolute_uri().to_string();
     const utility::string_t& clientIP = request.remote_address();
+
     span->SetAttribute(SemanticConventions::kHttpUrl, url);
     span->SetAttribute("net.peer.ip", clientIP);
     span->SetAttribute(SemanticConventions::kHttpScheme, "http");
 
-    // auto span = tracer->StartSpan("app-tier: enroll_employee_with_auto_client_assignment");
-    std::cout << "i am here" << std::endl;
     auto requestBody = request.extract_json().get();
     
     std::string extracted_name = requestBody[U("name")].as_string();
@@ -182,10 +202,7 @@ void add_employee(http_request request)
 
     int age = requestBody[U("age")].as_number().to_int32();
 
-    std::cout << name << std::endl;
-    std::cout << age << std::endl;
-    std::cout << client << std::endl;
-
+    
     json::value jsonResponse;
     int status = insert_into_table(db, name, age, client);
     if (!status)
@@ -206,30 +223,48 @@ void add_employee(http_request request)
 
 void get_employee(http_request request)
 {
-    auto span =  get_tracer()->StartSpan("Get_Registered_Employee_Details");
+    StartSpanOptions options;
+    options.kind = SpanKind::kServer;
+    if (request.headers().has("traceparent")) {
+        HttpTextMapCarrier<otel_http_client::Headers> carrier;
+        const std::string& traceparentVal = request.headers()["traceparent"];
+        carrier.Set("traceparent", traceparentVal);
+         if (request.headers().has("tracestate")) {
+            const std::string& tracestateVal = request.headers()["tracestate"];
+            carrier.Set("tracestate", tracestateVal);
+        }
+        auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+        auto current_ctx = context::RuntimeContext::GetCurrent();
+        auto new_context = prop->Extract(carrier, current_ctx);
+        options.parent   = GetSpan(new_context)->GetContext();
+
+    }
+   
+    auto span =  get_tracer()->StartSpan("Get_Registered_Employee_Details", options);
     auto scope = get_tracer()->WithActiveSpan(span);
+    const http_headers& headers = request.headers();
+   
     json::value jsonResponse = get_data_from_table(db);
     span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
     span->AddEvent("failed to get registered employee details");
     const utility::string_t& requestHeaderPrefix = "http.request.headers." ;
-    const http_headers& headers = request.headers();
-
     for (const auto& header : headers) {
-        const utility::string_t& name = header.first;
-        const utility::string_t& value = header.second;
+            const utility::string_t& name = header.first;
+            const utility::string_t& value = header.second;
 
-        if (name == "User-Agent") 
-        {   
-            span->SetAttribute("http.user_agent", value);
-            span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+            if (name == "User-Agent") 
+            {   
+                span->SetAttribute("http.user_agent", value);
+                span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+            }
+            else if (name == "Host") 
+            {
+                span->SetAttribute("http.host", value);
+            }        
+            utility::string_t headerName =  requestHeaderPrefix + name;
+            span->SetAttribute(headerName, value);
         }
-        else if (name == "Host") 
-        {
-            span->SetAttribute("http.host", value);
-        }
-        utility::string_t headerName =  requestHeaderPrefix + name;
-        span->SetAttribute(headerName, value);
-    }
+
     span->SetAttribute(SemanticConventions::kHttpMethod, "GET");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/manage-employee");
     const utility::string_t& url = request.absolute_uri().to_string();
@@ -249,55 +284,10 @@ namespace resource  = opentelemetry::sdk::resource;
 int main(int argc, char* argv[]) {
     
     if (argc != 2) {
-        std::cout << "Args required: ExporterEndpoint" << std::endl;
+        std::cout << "Args required: exporter_endpoint" << std::endl;
     }
-
-    otlp::OtlpHttpExporterOptions opts;
-    opts.url = argv[1];
-    opts.content_type  = otlp::HttpRequestContentType::kBinary;
-    
-
-    char hostname[256];
-    gethostname(hostname, sizeof(hostname));
-      
-    std::ifstream osRelease("/etc/os-release");
-    std::string line;
-    std::string os_type;
-    std::string os_description;
-    if (osRelease.is_open()) {
-        while (getline(osRelease, line)) {
-            if (line.substr(0, 8) == "ID_LIKE=") 
-            {
-                os_type = line.substr(8);
-            } 
-            else if (line.substr(0, 12) == "PRETTY_NAME=") 
-            {
-                os_description= line.substr(12);
-            }
-        }
-        osRelease.close();
-    }
-    resource::ResourceAttributes resource_attributes = {
-        {"service.name", "manage-employee"}, 
-        {"service.version", "1.0.1"} ,
-        {"host.name", hostname},
-        {"os.type", os_type},
-        {"os.description", os_description}
-    };
-    auto resource = resource::Resource::Create(resource_attributes);
-
-    auto exporter = otlp::OtlpHttpExporterFactory::Create(opts);
-    trace_sdk::BatchSpanProcessorOptions batchSpanOpts;
-    batchSpanOpts.max_queue_size = 2048;
-    batchSpanOpts.max_export_batch_size = 512;
-    auto processor = trace_sdk::BatchSpanProcessorFactory::Create(std::move(exporter), batchSpanOpts);
-
-    std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
-        trace_sdk::TracerProviderFactory::Create(std::move(processor), resource);
-    // auto provider = trace_sdk::TracerProviderFactory::Create(std::move(processor));
-
-    trace_api::Provider::SetTracerProvider(provider);
-
+   
+    initTracer(argv[1]);
    
     init_db(db);
     create_table(db);

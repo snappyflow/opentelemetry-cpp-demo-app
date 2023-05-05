@@ -11,8 +11,11 @@
 #include "opentelemetry/exporters/ostream/span_exporter_factory.h"
 #include "opentelemetry/sdk/trace/simple_processor_factory.h"
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
-#include "opentelemetry/trace/provider.h"
 #include "opentelemetry/trace/semantic_conventions.h"
+#include "opentelemetry/ext/http/client/http_client_factory.h"
+#include "opentelemetry/ext/http/common/url_parser.h"
+#include "opentelemetry/trace/context.h"
+#include "tracer_common.h"
 
 #include <cpprest/http_listener.h>
 #include <cpprest/json.h>
@@ -31,39 +34,29 @@ using namespace http::experimental::listener;
 using namespace opentelemetry::trace;
 
 namespace trace_api      = opentelemetry::trace;
-namespace trace_sdk      = opentelemetry::sdk::trace;
 namespace trace_exporter = opentelemetry::exporter::trace;
-
+namespace context     = opentelemetry::context;
+namespace otel_http_client = opentelemetry::ext::http::client;
 
 
 
 utility::string_t manage_employee_endpoint;
-opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> get_tracer()
-{
-  auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-  return provider->GetTracer("enroll-employee-client");
-}
 
 std::string getRandomString(const std::string* stringArray, int arraySize) {
     std::mt19937 gen(std::time(0));
-    
     std::uniform_int_distribution<> dis(0, arraySize - 1);
     int randomIndex = dis(gen);
-
     return stringArray[randomIndex];
 }
 
 void get_employee(http_request request)
 {
-
-    auto span =  get_tracer()->StartSpan("GET^Get_Employee_Details");
+    StartSpanOptions options;
+    options.kind = SpanKind::kClient;
+    auto span =  get_tracer()->StartSpan("GET^Get_Employee_Details",options);
     auto scope = get_tracer()->WithActiveSpan(span);
-
     const http_headers& headers = request.headers();
-
-    // const utility::string_t& requestHeaderPrefix = utility::conversions::to_string_t("http.request.headers.");
     const utility::string_t& requestHeaderPrefix = "http.request.headers." ;
-    // Iterate over the headers and print them
     for (const auto& header : headers) {
         const utility::string_t& name = header.first;
         const utility::string_t& value = header.second;
@@ -79,7 +72,6 @@ void get_employee(http_request request)
         }
         utility::string_t headerName =  requestHeaderPrefix + name;
         span->SetAttribute(headerName, value);
-        // Print the header name and value
     }
     span->SetAttribute(SemanticConventions::kHttpMethod, "GET");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/enroll-employee");
@@ -89,15 +81,29 @@ void get_employee(http_request request)
     span->SetAttribute("net.peer.ip", clientIP);
     span->SetAttribute(SemanticConventions::kHttpScheme, "http");
     
+
+    // inject current context into http header
+    auto current_ctx = context::RuntimeContext::GetCurrent();
+    HttpTextMapCarrier<otel_http_client::Headers> carrier;
+    auto prop = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+    prop->Inject(carrier, current_ctx);
+
+
+    
+
+  
     http_client client(manage_employee_endpoint);
     uri_builder builder(U("/api/manage-employee"));
 
     http_request manage_emp_request(methods::GET);
     manage_emp_request.set_request_uri(builder.to_uri());
 
-
-
-
+    
+    for (const auto& entry : carrier.headers_) {
+        manage_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
+                              utility::conversions::to_string_t(entry.second));
+    }
+    
     client.request(manage_emp_request)
     .then([&request,&span](http_response response) {
         const utility::string_t& requestHeaderPrefix = "http.response.headers." ;
@@ -146,7 +152,9 @@ void get_employee(http_request request)
 
 void assign_client_and_trigger_storage_in_ledger(http_request request)
 {
-    auto span =  get_tracer()->StartSpan("POST^Assign_Client_And_Register_Employee");
+    StartSpanOptions options;
+    options.kind = SpanKind::kClient;
+    auto span =  get_tracer()->StartSpan("POST^Assign_Client_And_Register_Employee", options);
     auto scope = get_tracer()->WithActiveSpan(span);
 
     const utility::string_t& requestHeaderPrefix = "http.request.headers." ;
@@ -179,14 +187,18 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
     span->SetAttribute(SemanticConventions::kHttpScheme, "http");\
 
 
+    // inject current context into http header
+    auto current_ctx = context::RuntimeContext::GetCurrent();
+    HttpTextMapCarrier<otel_http_client::Headers> carrier;
+    auto prop = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+    prop->Inject(carrier, current_ctx);
+
     auto requestBody = request.extract_json().get();
     std::string extracted_name = requestBody[U("name")].as_string();
     const char* name = extracted_name.c_str();
     int age = requestBody[U("age")].as_number().to_int32();
 
-    std::cout << name << std::endl;
-    std::cout << age << std::endl;
-    
+       
     std::string listOfClients[] = {
         "cisto",
         "maplelabse",
@@ -212,7 +224,11 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
     http_request add_emp_request(methods::POST);
     add_emp_request.set_body(payload);
     add_emp_request.set_request_uri(builder.to_uri());
-
+    
+    for (const auto& entry : carrier.headers_) {
+        add_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
+                              utility::conversions::to_string_t(entry.second));
+    }
     client.request(add_emp_request)
     .then([&request, &span](http_response response) {
         const utility::string_t& requestHeaderPrefix = "http.response.headers." ;
@@ -262,60 +278,12 @@ namespace resource  = opentelemetry::sdk::resource;
 int main(int argc, char* argv[]) {
 
     if (argc != 3) {
-        std::cout << "Args required: ExporterEndpoint, manage_employee_endpoint " << std::endl;
+        std::cout << "Args required: exporter_endpoint, manage_employee_endpoint " << std::endl;
     }
     manage_employee_endpoint = utility::conversions::to_string_t(argv[2]);
-    
-    
-    
-    
-    otlp::OtlpHttpExporterOptions opts;
-    opts.url = argv[1];
-    opts.content_type  = otlp::HttpRequestContentType::kBinary;
-      
-    
-
-    char hostname[256];
-    gethostname(hostname, sizeof(hostname));
-      
-    std::ifstream osRelease("/etc/os-release");
-    std::string line;
-    std::string os_type;
-    std::string os_description;
-    if (osRelease.is_open()) {
-        while (getline(osRelease, line)) {
-            if (line.substr(0, 8) == "ID_LIKE=") 
-            {
-                os_type = line.substr(8);
-            } 
-            else if (line.substr(0, 12) == "PRETTY_NAME=") 
-            {
-                os_description= line.substr(8);
-            }
-        }
-        osRelease.close();
-    }
-    resource::ResourceAttributes resource_attributes = {
-        {"service.name", "enroll-employee"}, 
-        {"service.version", "1.0.1"} ,
-        {"host.name", hostname},
-        {"os.type", os_type},
-        {"os.description", os_description}
-    };
-    auto resource = resource::Resource::Create(resource_attributes);
-
-    auto exporter = otlp::OtlpHttpExporterFactory::Create(opts);
-    trace_sdk::BatchSpanProcessorOptions batchSpanOpts;
-    batchSpanOpts.max_queue_size = 2048;
-    batchSpanOpts.max_export_batch_size = 512;
-    auto processor = trace_sdk::BatchSpanProcessorFactory::Create(std::move(exporter), batchSpanOpts);
-
-    std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
-        trace_sdk::TracerProviderFactory::Create(std::move(processor), resource);
-
-    trace_api::Provider::SetTracerProvider(provider);
   
-
+    initTracer(argv[1]);
+    
     http_listener listener(U("http://0.0.0.0:9090/api/enroll-employee"));
     listener.support(methods::POST, assign_client_and_trigger_storage_in_ledger);
     listener.support(methods::GET, get_employee);
