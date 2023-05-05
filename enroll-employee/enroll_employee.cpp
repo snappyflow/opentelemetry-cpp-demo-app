@@ -103,16 +103,16 @@ void get_employee(http_request request)
         manage_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
                               utility::conversions::to_string_t(entry.second));
     }
-    
-    client.request(manage_emp_request)
-    .then([&request,&span](http_response response) {
-        const utility::string_t& requestHeaderPrefix = "http.response.headers." ;
 
+    json::value jsonResponse;
+    int is_successful= 0;
+    client.request(manage_emp_request)
+    .then([&jsonResponse, &span, &is_successful](http_response response) {
+        const utility::string_t& requestHeaderPrefix = "http.response.headers." ;
         const http_headers& headers = response.headers();
         for (const auto& header : headers) {
             const utility::string_t& name = header.first;
             const utility::string_t& value = header.second;
-
             utility::string_t headerName =  requestHeaderPrefix + name;
             span->SetAttribute(headerName, value);
         }
@@ -120,33 +120,38 @@ void get_employee(http_request request)
             return response.extract_json();
         }
         else {
-            std::cout << "error observed while getting employee details; remote response status code" << response.status_code() << std::endl;
-            span->AddEvent("fetching employee details from upstream failed");
-            span->SetAttribute(SemanticConventions::kHttpStatusCode, response.status_code());
-            span->End();
-            json::value jsonData;
-            request.reply(status_codes::InternalError, jsonData);
+            throw std::runtime_error("HTTP request failed with status code " + std::to_string(response.status_code()));
         }
-        // return response.extract_json();
     })
-    .then([&request, &span](json::value jsonResponse) {
-    
+    .then([&jsonResponse, &span, &is_successful](json::value localJsonResponse) {
+        jsonResponse = localJsonResponse;
+        is_successful = 1;
+    })
+    .then([](pplx::task<void> previousTask) {
+        try {
+            previousTask.get();
+        } catch (const std::exception& ex) {
+            std::cerr << "Error: " << ex.what() << std::endl;
+        }
+    })
+    .wait();
+
+    if (is_successful) 
+    {
         std::cout << "Response from enroll employee micro-service" << std::endl;
-        std::cout <<  jsonResponse << std::endl;
         span->AddEvent("successfully fetched employee details");
         span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
         span->End();
-       request.reply(status_codes::OK, jsonResponse);
-    })
-    .wait();
-    // To-Do dummy response
-    span->AddEvent("unkown error while fetching employee details");
-    span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
-    span->End();
-
-    json::value dummyData;
-    request.reply(status_codes::InternalError, dummyData);
-
+        request.reply(status_codes::OK, jsonResponse);
+    }
+    else
+    {
+        std::cout << "error observed while getting employee details; "  << std::endl;
+        span->AddEvent("fetching employee details from upstream failed");
+        span->SetAttribute(SemanticConventions::kHttpStatusCode, 500);
+        span->End();
+        request.reply(status_codes::InternalError, jsonResponse);
+    }
 }
 
 
@@ -229,8 +234,11 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
         add_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
                               utility::conversions::to_string_t(entry.second));
     }
+    
+    json::value jsonResponse;
+    int is_successful= 0;
     client.request(add_emp_request)
-    .then([&request, &span](http_response response) {
+    .then([&jsonResponse, &span, &is_successful](http_response response) {
         const utility::string_t& requestHeaderPrefix = "http.response.headers." ;
         const http_headers& headers = response.headers();
         for (const auto& header : headers) {
@@ -244,31 +252,51 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
             return response.extract_json();
         }
         else {
-            std::cout << "error observed while adding employee; remote response status code" << response.status_code()  << std::endl;
-            span->SetAttribute(SemanticConventions::kHttpStatusCode, response.status_code());
-            span->AddEvent("sending employee details to upstream server failed");
-            span->End();
-            json::value jsonData;
-            request.reply(status_codes::InternalError, jsonData);
+            throw std::runtime_error("HTTP request failed with status code " + std::to_string(response.status_code()));
         }
+            // std::cout << "error observed while adding employee; remote response status code" << response.status_code()  << std::endl;
+            // span->SetAttribute(SemanticConventions::kHttpStatusCode, response.status_code());
+            // span->AddEvent("sending employee details to upstream server failed");
+            // span->End();
+            // json::value jsonData;
+            // request.reply(status_codes::InternalError, jsonData);
         // return response.extract_json();
     })
-    .then([&request, &span](json::value jsonResponse) {
-       std::cout << "Added employee to db" << std::endl;
-       span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
-       span->AddEvent("successfully assigned a client to employee and details are registed in db");
-       span->End();
-       request.reply(status_codes::OK, jsonResponse);
+    .then([&jsonResponse, &span, &is_successful](json::value localJsonResponse) {
+            jsonResponse = localJsonResponse;
+            is_successful = 1;
+    //    std::cout << "Added employee to db" << std::endl;
+    //    span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
+    //    span->AddEvent("successfully assigned a client to employee and details are registed in db");
+    //    span->End();
+    //    request.reply(status_codes::OK, jsonResponse);
+    })
+    .then([](pplx::task<void> previousTask) {
+        try {
+            previousTask.get();
+        } catch (const std::exception& ex) {
+            std::cerr << "Error: " << ex.what() << std::endl;
+        }
     })
     .wait();
 
-    span->AddEvent("unknown error while processing employee details");
+    if (is_successful) 
+    {
+        std::cout << "Added employee to db" << std::endl;
+        span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
+        span->AddEvent("successfully assigned a client to employee and details are registed in db");
+        span->End();
+        request.reply(status_codes::OK, jsonResponse);
+    }
+    else
+    {
+        std::cout << "error observed while adding employee; "<< std::endl;
+        span->SetAttribute(SemanticConventions::kHttpStatusCode, 500);
+        span->AddEvent("sending employee details to upstream server failed");
+        span->End();
+        request.reply(status_codes::InternalError, jsonResponse);
+    }
 
-    span->SetAttribute(SemanticConventions::kHttpStatusCode, 500);
-    span->End();
-    // To-Do dummy response
-    json::value dummyData;
-    request.reply(status_codes::InternalError, dummyData);
 }
 
 namespace otlp = opentelemetry::exporter::otlp;
