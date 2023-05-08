@@ -88,7 +88,7 @@ namespace
             } 
             else if (line.substr(0, 12) == "PRETTY_NAME=") 
             {
-                os_description= line.substr(8);
+                os_description= line.substr(12);
             }
         }
         osRelease.close();
@@ -98,7 +98,10 @@ namespace
         {"service.version", "1.0.1"} ,
         {"host.name", hostname},
         {"os.type", os_type},
-        {"os.description", os_description}
+        {"os.description", os_description},
+        {"snappyflow/projectname", "sabari-test"},
+        {"snappyflow/appname", "application"},
+        {"snappyflow/profilekey", "Isr7QGqj0rxnrRwgllGL1P9YrWwJVG4TzV1PK4tCrh3lh0op9AGaIsIP+scGcVSRvfOVFW4VuY0XfM0cb24RmXeQZbPUkY8rh8fb+aCMB7yTyU9tNVPvLwardUxag+/nvtxTOW43wpuunQr5EuyRrNkNwsDpQ+43m7SmzC4r2Os2vwxAONDg/jo/x9K3E3iRQBy/DweMKzqx1juSHFz5iQjsqwjnrTPzNLMj0b0ZDc/7gFtuYy7HADUD57xKTxKlw4xEA14zpbHsiTrfyPCwkLpSz4aOdwF4XuxaAoxtIZCicnfhprMnwyASWpyhtXmAgZVUn1yLVeKgNdbCAHgBG30zNkmqidwstusqptpViKg9SAp0rp6QQkoDSaJP5+d08MU8vPCrpp+HMvpmUBR/vZ2r8WzOsnW0QPCrFtlGpeq4P8ByWTMFvP4XqXtxfRca/7kV0PDPWUn/tNcDBD3L+ierjRheUUX4DF+ys5tyKaDD8UqrAMlHpqPyXYnIc6FfyWZkeWGotE5LOn5TrLEebFFj6XV1PIR15IYhptAIAxtFPMDvM3+dgzpPgjbyTdQ04bAOjgFvPh9RNiF5XMDioLh5LgABkTmVqEg9m04egiAkX6wm7Xe5c4QUDYDPQVspRCydEGt/l5Y3l72yQfmyUrqC9AN6LKa6nvZ5oDhkIzkKkU0DrwElnGG5u8i8GKxzsJTzCk+f33Hou8oWVIZgjkN1qMiH8pQ4tG0HhpuWk8PFBrhxLeojNYwkUIqLyWlQtnWEf0+WwA48G5V9u0QSue0oXkTSLiOOXo/pE+uRYU0uwSGTVB20jsXDyBADeT7V9RPoPlk2i+dyZdOwbjYTpCYeHxnrPywO4C1uNdtiX5LgMkzAEK3JLvnNkLY+qwGEnes9rv6v8UxYqP5/LJ8jLKb25LwNflEqj6YEEuYFtiA3c+mGfkEPGcvesEDRSCtl"},
     };
     auto resource = resource::Resource::Create(resource_attributes);
 
