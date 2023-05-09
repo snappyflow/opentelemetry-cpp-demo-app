@@ -29,6 +29,26 @@ opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> get_tracer()
   return provider->GetTracer("manage-employee-client");
 }
 
+typedef unsigned char uchar;
+static const std::string b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";//=
+std::string base64_encode(std::string &in) {
+    std::string out;
+
+    int val=0, valb=-6;
+    for (uchar c : in) {
+        val = (val<<8) + c;
+        valb += 8;
+        while (valb>=0) {
+            out.push_back(b[(val>>valb)&0x3F]);
+            valb-=6;
+        }
+    }
+    if (valb>-6) out.push_back(b[((val<<8)>>(valb+8))&0x3F]);
+    while (out.size()%4) out.push_back('=');
+    return out;
+}
+
+
 namespace
 {
   template <typename T>
@@ -66,11 +86,19 @@ namespace
 
   otlp::OtlpHttpExporterOptions opts;
 
-  void initTracer(char *exporter_endpoint)
+  void initTracer(char *exporter_endpoint, char *exporter_auth_user, char *exporter_auth_pass, 
+                  char *sf_project_name, char *sf_app_name, char *sf_profile_id)
   {
     opts.url = exporter_endpoint;
     opts.content_type  = otlp::HttpRequestContentType::kBinary;
       
+       
+    std::string username(exporter_auth_user);
+    std::string password(exporter_auth_pass);
+    std::string authString = username + ":" + password;
+    std::string encodedAuthString = base64_encode(authString);
+
+    opts.http_headers = {{"Authorization", "Basic "+encodedAuthString}};
     
 
     char hostname[256];
@@ -99,9 +127,9 @@ namespace
         {"host.name", hostname},
         {"os.type", os_type},
         {"os.description", os_description},
-        {"snappyflow/projectname", "sabari-test"},
-        {"snappyflow/appname", "application"},
-        {"snappyflow/profilekey", "Isr7QGqj0rxnrRwgllGL1P9YrWwJVG4TzV1PK4tCrh3lh0op9AGaIsIP+scGcVSRvfOVFW4VuY0XfM0cb24RmXeQZbPUkY8rh8fb+aCMB7yTyU9tNVPvLwardUxag+/nvtxTOW43wpuunQr5EuyRrNkNwsDpQ+43m7SmzC4r2Os2vwxAONDg/jo/x9K3E3iRQBy/DweMKzqx1juSHFz5iQjsqwjnrTPzNLMj0b0ZDc/7gFtuYy7HADUD57xKTxKlw4xEA14zpbHsiTrfyPCwkLpSz4aOdwF4XuxaAoxtIZCicnfhprMnwyASWpyhtXmAgZVUn1yLVeKgNdbCAHgBG30zNkmqidwstusqptpViKg9SAp0rp6QQkoDSaJP5+d08MU8vPCrpp+HMvpmUBR/vZ2r8WzOsnW0QPCrFtlGpeq4P8ByWTMFvP4XqXtxfRca/7kV0PDPWUn/tNcDBD3L+ierjRheUUX4DF+ys5tyKaDD8UqrAMlHpqPyXYnIc6FfyWZkeWGotE5LOn5TrLEebFFj6XV1PIR15IYhptAIAxtFPMDvM3+dgzpPgjbyTdQ04bAOjgFvPh9RNiF5XMDioLh5LgABkTmVqEg9m04egiAkX6wm7Xe5c4QUDYDPQVspRCydEGt/l5Y3l72yQfmyUrqC9AN6LKa6nvZ5oDhkIzkKkU0DrwElnGG5u8i8GKxzsJTzCk+f33Hou8oWVIZgjkN1qMiH8pQ4tG0HhpuWk8PFBrhxLeojNYwkUIqLyWlQtnWEf0+WwA48G5V9u0QSue0oXkTSLiOOXo/pE+uRYU0uwSGTVB20jsXDyBADeT7V9RPoPlk2i+dyZdOwbjYTpCYeHxnrPywO4C1uNdtiX5LgMkzAEK3JLvnNkLY+qwGEnes9rv6v8UxYqP5/LJ8jLKb25LwNflEqj6YEEuYFtiA3c+mGfkEPGcvesEDRSCtl"},
+        {"snappyflow/projectname", sf_project_name},
+        {"snappyflow/appname", sf_app_name},
+        {"snappyflow/profilekey", sf_profile_id}
     };
     auto resource = resource::Resource::Create(resource_attributes);
 
@@ -119,6 +147,12 @@ namespace
     opentelemetry::context::propagation::GlobalTextMapPropagator::SetGlobalPropagator(
         opentelemetry::nostd::shared_ptr<opentelemetry::context::propagation::TextMapPropagator>(
             new opentelemetry::trace::propagation::HttpTraceContext()));
+  }
+
+  void CleanupTracer()
+  {
+    std::shared_ptr<opentelemetry::trace::TracerProvider> none;
+    trace_api::Provider::SetTracerProvider(none);
   }
 
 }

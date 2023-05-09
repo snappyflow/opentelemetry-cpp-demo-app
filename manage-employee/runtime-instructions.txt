@@ -1,0 +1,17 @@
+Executable Runtime Args:
+    LD_LIBRARY_PATH
+    SF_FORWARDER_URL
+    SF_FORWARDER_AUTH_USER
+    SF_FORWARDER_AUTH_PASS
+    SF_TARGET_PROJECT_NAME
+    SF_TARGET_APP_NAME
+    SF_TARGET_PROFILE_KEY
+
+Runtime EnvFile:
+    runtime-env-file.env 
+
+Local ListenerPort:
+    9091
+
+Example: 
+   docker run --env-file runtime-env-file.env -p 9091:9091 sabariarunkumarp/demo-otel-cpp-manage-employee:2

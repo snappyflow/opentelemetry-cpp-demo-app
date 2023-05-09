@@ -281,13 +281,47 @@ namespace resource  = opentelemetry::sdk::resource;
 
 
 
-int main(int argc, char* argv[]) {
+int main() {
     
-    if (argc != 2) {
-        std::cout << "Args required: exporter_endpoint" << std::endl;
+    char* forwarder_url = std::getenv("SF_FORWARDER_URL");
+    if (forwarder_url == nullptr) {
+        std::cerr << "SF_FORWARDER_URL is not set; exiting;" << std::endl;
+        return -1;
     }
-   
-    initTracer(argv[1]);
+    
+    char* forwarder_auth_user = std::getenv("SF_FORWARDER_AUTH_USER");
+    if (forwarder_auth_user == nullptr) {
+        std::cerr << "SF_FORWARDER_AUTH_USER is not set; exiting;" << std::endl;
+        return -1;
+    }
+
+    char* forwarder_auth_pass = std::getenv("SF_FORWARDER_AUTH_PASS");
+    if (forwarder_auth_pass == nullptr) {
+        std::cerr << "SF_FORWARDER_AUTH_PASS is not set; exiting;" << std::endl;
+        return -1;
+    }
+    
+    char* sf_target_project_name = std::getenv("SF_TARGET_PROJECT_NAME");
+    if (sf_target_project_name == nullptr) {
+        std::cerr << "SF_TARGET_PROJECT_NAME is not set; exiting;" << std::endl;
+        return -1;
+    }
+
+    char* sf_target_app_name = std::getenv("SF_TARGET_APP_NAME");
+    if (sf_target_app_name == nullptr) {
+        std::cerr << "SF_TARGET_APP_NAME is not set; exiting;" << std::endl;
+        return -1;
+    }
+
+    char* sf_target_profile_key = std::getenv("SF_TARGET_PROFILE_KEY");
+    if (sf_target_profile_key == nullptr) {
+        std::cerr << "SF_TARGET_PROFILE_KEY is not set; exiting;" << std::endl;
+        return -1;
+    }
+
+
+    initTracer(forwarder_url, forwarder_auth_user, forwarder_auth_pass, 
+                sf_target_project_name, sf_target_app_name, sf_target_profile_key);
    
     init_db(db);
     create_table(db);
@@ -307,6 +341,6 @@ int main(int argc, char* argv[]) {
     {
         std::cerr << "Error: " << e.what() << std::endl;
     }
-
+    CleanupTracer();
     return 0;
 }
