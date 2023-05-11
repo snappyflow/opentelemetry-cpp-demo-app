@@ -1,4 +1,4 @@
-FROM sabariarunkumarp/span-demo-app-dependency:3
+FROM sabariarunkumarp/span-demo-app-dependency:4
 
 # Set the working directory
 WORKDIR /app

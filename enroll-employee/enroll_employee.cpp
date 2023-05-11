@@ -15,6 +15,12 @@
 #include "opentelemetry/ext/http/client/http_client_factory.h"
 #include "opentelemetry/ext/http/common/url_parser.h"
 #include "opentelemetry/trace/context.h"
+#include "opentelemetry/exporters/otlp/otlp_http_log_record_exporter_factory.h"
+#include "opentelemetry/exporters/otlp/otlp_http_log_record_exporter_options.h"
+#include "opentelemetry/logs/provider.h"
+#include "opentelemetry/sdk/common/global_log_handler.h"
+#include "opentelemetry/sdk/logs/logger_provider_factory.h"
+#include "opentelemetry/sdk/logs/simple_log_record_processor_factory.h"
 #include "tracer_common.h"
 
 #include <cpprest/http_listener.h>
@@ -55,6 +61,9 @@ void get_employee(http_request request)
     options.kind = SpanKind::kClient;
     auto span =  get_tracer()->StartSpan("GET^Get_Employee_Details",options);
     auto scope = get_tracer()->WithActiveSpan(span);
+    
+    
+
     const http_headers& headers = request.headers();
     const utility::string_t& requestHeaderPrefix = "http.request.headers." ;
     for (const auto& header : headers) {
@@ -64,7 +73,7 @@ void get_employee(http_request request)
         if (name == "User-Agent") 
         {   
             span->SetAttribute("http.user_agent", value);
-            span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+            span->SetAttribute("user_agent.original", value);
         }
         else if (name == "Host") 
         {
@@ -73,7 +82,7 @@ void get_employee(http_request request)
         utility::string_t headerName =  requestHeaderPrefix + name;
         span->SetAttribute(headerName, value);
     }
-    span->SetAttribute(SemanticConventions::kHttpMethod, "GET");
+    span->SetAttribute(SemanticConventions::kHttpMethod, "get");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/enroll-employee");
     const utility::string_t& url = request.absolute_uri().to_string();
     const utility::string_t& clientIP = request.remote_address();
@@ -103,6 +112,12 @@ void get_employee(http_request request)
         manage_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
                               utility::conversions::to_string_t(entry.second));
     }
+
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kDebug, "Remote call to external service to get employee details is initiated", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
 
     json::value jsonResponse;
     int is_successful= 0;
@@ -139,6 +154,9 @@ void get_employee(http_request request)
     if (is_successful) 
     {
         std::cout << "Response from enroll employee micro-service" << std::endl;
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kInfo, "successfully received employee details from remote service", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->AddEvent("successfully fetched employee details");
         span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
         span->End();
@@ -147,6 +165,9 @@ void get_employee(http_request request)
     else
     {
         std::cout << "error observed while getting employee details; "  << std::endl;
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kError, "unsuccessful in receiving employee details from remote service", ctx.trace_id(),
+                ctx.span_id(), ctx.trace_flags(),
+                opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->AddEvent("fetching employee details from upstream failed");
         span->SetAttribute(SemanticConventions::kHttpStatusCode, 500);
         span->End();
@@ -173,7 +194,7 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
         if (name == "User-Agent") 
         {   
             span->SetAttribute("http.user_agent", value);
-            span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+            span->SetAttribute("user_agent.original", value);
         }
         else if (name == "Host") 
         {
@@ -183,7 +204,7 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
         span->SetAttribute(headerName, value);
         // Print the header name and value
     }
-    span->SetAttribute(SemanticConventions::kHttpMethod, "POST");
+    span->SetAttribute(SemanticConventions::kHttpMethod, "post");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/enroll-employee");
     const utility::string_t& url = request.absolute_uri().to_string();
     const utility::string_t& clientIP = request.remote_address();
@@ -206,7 +227,7 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
        
     std::string listOfClients[] = {
         "cisto",
-        "maplelabse",
+        "maplelabs",
         "google",
         "microsoft",
         "xoriant"
@@ -234,7 +255,14 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
         add_emp_request.headers().add(utility::conversions::to_string_t(entry.first),
                               utility::conversions::to_string_t(entry.second));
     }
-    
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kInfo, "successfully assigned client to incoming employee", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kDebug, "initiating remote request to store employee details in DB", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
     json::value jsonResponse;
     int is_successful= 0;
     client.request(add_emp_request)
@@ -284,6 +312,9 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
     {
         std::cout << "Added employee to db" << std::endl;
         span->SetAttribute(SemanticConventions::kHttpStatusCode, 200);
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kInfo, "Details are registered in DB", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->AddEvent("successfully assigned a client to employee and details are registed in db");
         span->End();
         request.reply(status_codes::OK, jsonResponse);
@@ -291,6 +322,9 @@ void assign_client_and_trigger_storage_in_ledger(http_request request)
     else
     {
         std::cout << "error observed while adding employee; "<< std::endl;
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kError, "communicating employee details to upstream server failed", ctx.trace_id(),
+                        ctx.span_id(), ctx.trace_flags(),
+                        opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->SetAttribute(SemanticConventions::kHttpStatusCode, 500);
         span->AddEvent("sending employee details to upstream server failed");
         span->End();
@@ -351,7 +385,9 @@ int main() {
   
     initTracer(forwarder_url, forwarder_auth_user, forwarder_auth_pass, 
                 sf_target_project_name, sf_target_app_name, sf_target_profile_key);
-    
+    initLogger(forwarder_url, forwarder_auth_user, forwarder_auth_pass, 
+                sf_target_project_name, sf_target_app_name, sf_target_profile_key);
+
     http_listener listener(U("http://0.0.0.0:9090/api/enroll-employee"));
     listener.support(methods::POST, assign_client_and_trigger_storage_in_ledger);
     listener.support(methods::GET, get_employee);
@@ -368,5 +404,6 @@ int main() {
         std::cerr << "Error: " << e.what() << std::endl;
     }
     CleanupTracer();
+    CleanupLogger();
     return 0;
 }

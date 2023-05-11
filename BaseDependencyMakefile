@@ -32,13 +32,13 @@ opentelemetry_build:
 	rm -rf opentelemetry-cpp && \
 	git clone https://github.com/open-telemetry/opentelemetry-cpp
 	cd opentelemetry-cpp && \
-	# git checkout tags/v1.8.3 -b v1.8.3 && \
+	git checkout tags/v1.8.3 -b v1.8.3 && \
 	mkdir build && \
 	cd build && \
 	# cmake .. -DCMAKE_CXX_STANDARD=17 -DWITH_OTLP=ON -DBUILD_TESTING=OFF  -DWITH_OTLP_GRPC=OFF  -DOPENTELEMETRY_INSTALL=ON&& \
 	cmake .. -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=Release \
-	-DBUILD_TESTING=OFF -DWITH_EXAMPLES=OFF -DWITH_OTLP=ON \
-	-DWITH_OTLP_HTTP=ON -DWITH_OTLP_GRPC=OFF -DOPENTELEMETRY_INSTALL=ON -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON && \
+	-DBUILD_TESTING=OFF -DWITH_EXAMPLES=OFF -DWITH_OTLP=ON -DWITH_OTLP_HTTP_SSL_PREVIEW=ON \
+	-DWITH_OTLP_HTTP=ON -DWITH_OTLP_GRPC=OFF -DOPENTELEMETRY_INSTALL=ON -DCMAKE_CXX_STANDARD=20 -DWITH_LOGS_PREVIEW=ON -DBUILD_SHARED_LIBS=ON && \
 	make -j$(nproc || sysctl -n hw.ncpu || echo 1) install
 
 # let compilation happen through dockerfile such that effectiely reusing compiled chunk in docker layer cache

@@ -1,4 +1,6 @@
 #include "opentelemetry/exporters/otlp/otlp_http_exporter_factory.h"
+#include "opentelemetry/sdk/logs/batch_log_record_processor_factory.h"
+#include "opentelemetry/sdk/logs/batch_log_record_processor.h"
 #include "opentelemetry/exporters/otlp/otlp_http_exporter_options.h"
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/context/propagation/text_map_propagator.h"
@@ -21,6 +23,14 @@ namespace otlp     = opentelemetry::exporter::otlp;
 namespace sdktrace = opentelemetry::sdk::trace;
 namespace resource = opentelemetry::sdk::resource;
 namespace trace_sdk      = opentelemetry::sdk::trace;
+namespace logs_sdk  = opentelemetry::sdk::logs;
+namespace logs      = opentelemetry::logs;
+
+opentelemetry::nostd::shared_ptr<logs::Logger> get_logger()
+{
+  auto provider = logs::Provider::GetLoggerProvider();
+  return provider->GetLogger("enroll-employee-logger", "enroll-employee");
+}
 
 opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> get_tracer()
 {
@@ -82,12 +92,16 @@ namespace
     T headers_;
   };
 
-  otlp::OtlpHttpExporterOptions opts;
+ 
 
-  void initTracer(char *exporter_endpoint, char *exporter_auth_user, char *exporter_auth_pass, 
+  void initTracer(char *exporter_url, char *exporter_auth_user, char *exporter_auth_pass, 
                   char *sf_project_name, char *sf_app_name, char *sf_profile_id)     
   {
-    opts.url = exporter_endpoint;
+    otlp::OtlpHttpExporterOptions opts;
+    std::string url(exporter_url);
+    std::string exporter_trace_endpoint = url + "/trace";
+    
+    opts.url = exporter_trace_endpoint;
     opts.content_type  = otlp::HttpRequestContentType::kBinary;
     
     std::string username(exporter_auth_user);
@@ -147,10 +161,55 @@ namespace
             new opentelemetry::trace::propagation::HttpTraceContext()));
   }
 
+ 
+
+  void initLogger(char *exporter_url, char *exporter_auth_user, char *exporter_auth_pass, 
+                  char *sf_project_name, char *sf_app_name, char *sf_profile_id)
+  {
+    otlp::OtlpHttpLogRecordExporterOptions logger_opts;
+    std::string url(exporter_url);
+    std::string exporter_log_endpoint = url + "/log";
+    
+    logger_opts.url = exporter_log_endpoint;
+    logger_opts.content_type  = otlp::HttpRequestContentType::kBinary;
+    std::string username(exporter_auth_user);
+    std::string password(exporter_auth_pass);
+    std::string authString = username + ":" + password;
+    std::string encodedAuthString = base64_encode(authString);
+
+    logger_opts.http_headers = {{"Authorization", "Basic "+encodedAuthString}};
+      // opts.insecure  = true;
+    resource::ResourceAttributes resource_attributes = {
+        {"service.name", "enroll-employee"}, 
+        {"service.version", "1.0.1"} ,
+        {"snappyflow/projectname", sf_project_name},
+        {"snappyflow/appname", sf_app_name},
+        {"snappyflow/profilekey", sf_profile_id}
+    };
+    auto resource = resource::Resource::Create(resource_attributes);
+    // Create OTLP exporter instance
+    auto exporter  = otlp::OtlpHttpLogRecordExporterFactory::Create(logger_opts);
+
+    logs_sdk::BatchLogRecordProcessorOptions  logProcesorOpts;
+    logProcesorOpts.max_queue_size = 2048;
+    logProcesorOpts.max_export_batch_size = 512;
+
+    auto processor = logs_sdk::BatchLogRecordProcessorFactory::Create(std::move(exporter), logProcesorOpts);
+    // auto processor = logs_sdk::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
+    std::shared_ptr<logs::LoggerProvider> provider =
+        logs_sdk::LoggerProviderFactory::Create(std::move(processor), resource);
+
+    opentelemetry::logs::Provider::SetLoggerProvider(provider);
+  }
 
   void CleanupTracer()
   {
     std::shared_ptr<opentelemetry::trace::TracerProvider> none;
     trace_api::Provider::SetTracerProvider(none);
+  }
+  void CleanupLogger()
+  {
+    std::shared_ptr<logs::LoggerProvider> none;
+    opentelemetry::logs::Provider::SetLoggerProvider(none);
   }
 }

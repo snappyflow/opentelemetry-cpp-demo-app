@@ -17,6 +17,12 @@
 #include "opentelemetry/ext/http/client/http_client_factory.h"
 #include "opentelemetry/ext/http/common/url_parser.h"
 #include "opentelemetry/trace/context.h"
+#include "opentelemetry/exporters/otlp/otlp_http_log_record_exporter_factory.h"
+#include "opentelemetry/exporters/otlp/otlp_http_log_record_exporter_options.h"
+#include "opentelemetry/logs/provider.h"
+#include "opentelemetry/sdk/common/global_log_handler.h"
+#include "opentelemetry/sdk/logs/logger_provider_factory.h"
+#include "opentelemetry/sdk/logs/simple_log_record_processor_factory.h"
 #include "tracer_common.h"
 
 #include <cpprest/http_listener.h>
@@ -81,6 +87,11 @@ int insert_into_table(sqlite3* db, const char *name, int age, const char *client
     options.kind = SpanKind::kInternal;
     auto span =  get_tracer()->StartSpan("Add_Employee_Details_To_DB", options);
     auto scope = get_tracer()->WithActiveSpan(span);
+    
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+
+
     span->SetAttribute(SemanticConventions::kDbName, "employeeDB");
     span->SetAttribute("db.type", "sqlite");
     span->SetAttribute("db.action", "query");
@@ -95,19 +106,28 @@ int insert_into_table(sqlite3* db, const char *name, int age, const char *client
     int result = sqlite3_exec(db, insertQuery, nullptr, nullptr, nullptr);
     if (result != SQLITE_OK) {
         std::cerr << "Error inserting data: " << sqlite3_errmsg(db) << std::endl;
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kError, "Insertion of employee data into DB is unsuccessful", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->End();
         return result;
     }
     span->AddEvent("db insertion of employee data successful");
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kInfo, "Insertion of employee data into DB is successful", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                    opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
     span->End();
     return 0;
 }
+
 json::value get_data_from_table(sqlite3* db) {
 
     StartSpanOptions options;
     options.kind = SpanKind::kInternal;
     auto span =  get_tracer()->StartSpan("GET^Fetch_Employee_Data_From_DB", options);
     auto scope = get_tracer()->WithActiveSpan(span);
+
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+
 
     span->SetAttribute(SemanticConventions::kDbName, "employeeDB");
     span->SetAttribute("db.type", "sqlite");
@@ -133,9 +153,13 @@ json::value get_data_from_table(sqlite3* db) {
         std::cerr << "Error selecting data: " << sqlite3_errmsg(db) << std::endl;
         // sqlite3_close(db);
         span->AddEvent("failed to fetch employee details from DB");
+        logger->EmitLogRecord(opentelemetry::logs::Severity::kError, "failed to fetch employee details from DB", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                    opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
         span->End();
         return responseArray;
     }
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kInfo, "employee details in db are fetched successfully", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                    opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
     span->AddEvent("employee details in db are fetched successfully");
     span->End();
     return responseArray;
@@ -163,6 +187,11 @@ void add_employee(http_request request)
     auto span =  get_tracer()->StartSpan("POST^Register_Employee", options);
     auto scope = get_tracer()->WithActiveSpan(span);
 
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kDebug, "employee details DB insert request successfully received", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                    opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
+
     const http_headers& headers = request.headers();
 
     const utility::string_t& requestHeaderPrefix = "http.request.headers." ;
@@ -173,7 +202,7 @@ void add_employee(http_request request)
         if (name == "User-Agent") 
         {   
             span->SetAttribute("http.user_agent", value);
-            span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+            span->SetAttribute("user_agent.original", value);
         }
         else if (name == "Host") 
         {
@@ -182,7 +211,7 @@ void add_employee(http_request request)
         utility::string_t headerName =  requestHeaderPrefix + name;
         span->SetAttribute(headerName, value);
     }
-    span->SetAttribute(SemanticConventions::kHttpMethod, "POST");
+    span->SetAttribute(SemanticConventions::kHttpMethod, "post");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/manage-employee");
 
     const utility::string_t& url = request.absolute_uri().to_string();
@@ -201,6 +230,7 @@ void add_employee(http_request request)
     const char* client = extracted_assigned_client.c_str();
 
     int age = requestBody[U("age")].as_number().to_int32();
+
 
     
     json::value jsonResponse;
@@ -242,6 +272,12 @@ void get_employee(http_request request)
    
     auto span =  get_tracer()->StartSpan("Get_Registered_Employee_Details", options);
     auto scope = get_tracer()->WithActiveSpan(span);
+
+    auto logger      = get_logger();
+    auto ctx         = span->GetContext();
+    logger->EmitLogRecord(opentelemetry::logs::Severity::kDebug, "employee details fetch request successfully received", ctx.trace_id(), ctx.span_id(), ctx.trace_flags(),
+                    opentelemetry::common::SystemTimestamp(std::chrono::system_clock::now()));
+
     const http_headers& headers = request.headers();
    
     json::value jsonResponse = get_data_from_table(db);
@@ -255,7 +291,7 @@ void get_employee(http_request request)
             if (name == "User-Agent") 
             {   
                 span->SetAttribute("http.user_agent", value);
-                span->SetAttribute(SemanticConventions::kUserAgentOriginal, value);
+                span->SetAttribute("user_agent.original", value);
             }
             else if (name == "Host") 
             {
@@ -265,7 +301,7 @@ void get_employee(http_request request)
             span->SetAttribute(headerName, value);
         }
 
-    span->SetAttribute(SemanticConventions::kHttpMethod, "GET");
+    span->SetAttribute(SemanticConventions::kHttpMethod, "get");
     span->SetAttribute(SemanticConventions::kHttpTarget, "/api/manage-employee");
     const utility::string_t& url = request.absolute_uri().to_string();
     const utility::string_t& clientIP = request.remote_address();
@@ -342,5 +378,6 @@ int main() {
         std::cerr << "Error: " << e.what() << std::endl;
     }
     CleanupTracer();
+    CleanupLogger();
     return 0;
 }
