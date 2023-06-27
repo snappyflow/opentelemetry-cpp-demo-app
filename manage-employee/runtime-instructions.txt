@@ -14,4 +14,4 @@ Local ListenerPort:
     9091
 
 Example: 
-   docker run --env-file runtime-env-file.env -p 9091:9091 sabariarunkumarp/demo-otel-cpp-manage-employee:2
+   docker run --env-file runtime-env-file.env -p 9091:9091 snappyflowml/demo-otel-cpp-manage-employee:latest
